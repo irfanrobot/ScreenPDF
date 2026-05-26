@@ -1,4 +1,4 @@
-# ScreenPDF (AutoPDF Screen Printer)
+# AutoScreenPDF (AutoPDF Screen Printer)
 
 Python-based automated utility to take multiple sequential screenshots of a selected screen area and convert them into a single PDF document. This project is a Python recreation of the [plainprinter](https://github.com/plainlab/plainprinter) tool, now featuring scroll-based capture.
 
