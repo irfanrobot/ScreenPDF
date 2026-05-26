@@ -1,0 +1,15 @@
+# Python
+__pycache__/
+*.pyc
+venv/
+
+# IDEs
+.vscode/
+.idea/
+
+# Reference folder
+plainprinter_reference/
+
+# Output
+*.pdf
+*.png
