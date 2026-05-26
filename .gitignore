@@ -13,3 +13,6 @@ plainprinter_reference/
 # Output
 *.pdf
 *.png
+
+# Local configurations
+config.json

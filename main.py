@@ -5,6 +5,7 @@ import keyboard
 import time
 from PIL import Image, ImageGrab
 import os
+import json
 
 # Initialize Pillow plugins to prevent KeyError: 'JPEG'
 Image.init()
@@ -13,10 +14,13 @@ class ScreenPrinterApp:
     def __init__(self, root):
         self.root = root
         self.root.title("AutoPDF Screen Printer")
-        self.root.geometry("450x380")
+        self.root.geometry("450x400")
         
         self.screenshots = []
+        self.config_file = "config.json"
+        
         self.setup_ui()
+        self.load_config()
 
     def setup_ui(self):
         tk.Label(self.root, text="AutoPDF Screen Printer", font=("Arial", 16, "bold")).pack(pady=10)
@@ -30,7 +34,6 @@ class ScreenPrinterApp:
         
         self.entry_area = tk.Entry(frame_area)
         self.entry_area.pack(side=tk.LEFT, fill="x", expand=True, padx=5)
-        self.entry_area.insert(0, "")
         
         # Frame Next Button
         frame_next = tk.LabelFrame(self.root, text="2. Next Button Position (x, y)", padx=10, pady=5)
@@ -41,7 +44,6 @@ class ScreenPrinterApp:
         
         self.entry_next = tk.Entry(frame_next)
         self.entry_next.pack(side=tk.LEFT, fill="x", expand=True, padx=5)
-        self.entry_next.insert(0, "")
         
         # Click Delay & Total Clicks Frame
         frame_settings = tk.Frame(self.root)
@@ -63,11 +65,53 @@ class ScreenPrinterApp:
         self.entry_total.insert(0, "5")
         self.entry_total.pack(side=tk.LEFT, padx=5)
         
-        # Start Button
-        self.btn_start = tk.Button(self.root, text="Start & Save to PDF", command=self.start_process, bg="green", fg="white", font=("Arial", 11, "bold"))
-        self.btn_start.pack(pady=15)
+        # Action Buttons Frame
+        frame_actions = tk.Frame(self.root)
+        frame_actions.pack(pady=15)
+        
+        self.btn_save_config = tk.Button(frame_actions, text="Save Config", command=self.save_config, font=("Arial", 10))
+        self.btn_save_config.pack(side=tk.LEFT, padx=10)
+        
+        self.btn_start = tk.Button(frame_actions, text="Start & Save to PDF", command=self.start_process, bg="green", fg="white", font=("Arial", 11, "bold"))
+        self.btn_start.pack(side=tk.LEFT, padx=10)
         
         tk.Label(self.root, text="Tip: Press 'ESC' key to cancel while program is running.", fg="gray", font=("Arial", 9, "italic")).pack()
+
+    def load_config(self):
+        if os.path.exists(self.config_file):
+            try:
+                with open(self.config_file, "r") as f:
+                    config = json.load(f)
+                    
+                self.entry_area.delete(0, tk.END)
+                self.entry_area.insert(0, config.get("printing_area", ""))
+                
+                self.entry_next.delete(0, tk.END)
+                self.entry_next.insert(0, config.get("next_button", ""))
+                
+                self.entry_delay.delete(0, tk.END)
+                self.entry_delay.insert(0, config.get("click_delay", "1.0"))
+                
+                self.entry_total.delete(0, tk.END)
+                self.entry_total.insert(0, config.get("total_clicks", "5"))
+            except Exception as e:
+                print(f"Error loading config: {e}")
+
+    def save_config(self, show_msg=True):
+        config = {
+            "printing_area": self.entry_area.get(),
+            "next_button": self.entry_next.get(),
+            "click_delay": self.entry_delay.get(),
+            "total_clicks": self.entry_total.get()
+        }
+        try:
+            with open(self.config_file, "w") as f:
+                json.dump(config, f, indent=4)
+            if show_msg:
+                messagebox.showinfo("Success", "Configuration saved successfully!")
+        except Exception as e:
+            if show_msg:
+                messagebox.showerror("Error", f"Failed to save configuration:\n{e}")
 
     def select_area(self):
         self.root.withdraw() # Hide main window
@@ -180,6 +224,9 @@ class ScreenPrinterApp:
         if not pdf_path:
             return
             
+        # Auto-save configuration before starting process
+        self.save_config(show_msg=False)
+
         self.root.withdraw()
         time.sleep(1) # Wait for window to hide
         
