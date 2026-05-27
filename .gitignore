@@ -16,3 +16,8 @@ plainprinter_reference/
 
 # Local configurations
 config.json
+
+# PyInstaller
+build/
+dist/
+*.spec
