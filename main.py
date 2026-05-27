@@ -415,16 +415,24 @@ class ScreenPrinterApp:
         self.entry_scroll_next.delete(0, tk.END)
         self.entry_scroll_next.insert(0, cleaned)
 
+    def get_page_filename(self, save_path, index, total_count):
+        if total_count <= 1:
+            return save_path
+        dir_name = os.path.dirname(save_path)
+        base_name = os.path.basename(save_path)
+        name_part, ext_part = os.path.splitext(base_name)
+        return os.path.join(dir_name, f"{name_part}_{index+1}{ext_part}")
+
     def sleep_with_cancel_check(self, seconds):
-        # Checks every 100ms for 'ESC' key to cancel early
-        steps = int(seconds * 10)
+        # Checks every 50ms for cancel flag or 'ESC' key to cancel early
+        steps = int(seconds * 20)
         for _ in range(steps):
-            time.sleep(0.1)
-            if keyboard.is_pressed('esc'):
+            time.sleep(0.05)
+            if getattr(self, 'cancel_requested', False) or keyboard.is_pressed('esc'):
                 return False
         # Remainder time
-        time.sleep(seconds - (steps * 0.1))
-        if keyboard.is_pressed('esc'):
+        time.sleep(max(0.0, seconds - (steps * 0.05)))
+        if getattr(self, 'cancel_requested', False) or keyboard.is_pressed('esc'):
             return False
         return True
 
@@ -577,30 +585,84 @@ class ScreenPrinterApp:
         # Auto-save configuration before starting process
         self.save_config(show_msg=False)
 
+        # Check for existing JPG pages to support resuming
+        start_page_idx = 0
+        limit = total_clicks if mode == "button" else total_pages
+        if export_format == "jpg":
+            existing_count = 0
+            for i in range(limit):
+                page_path = self.get_page_filename(save_path, i, limit)
+                if os.path.exists(page_path):
+                    existing_count += 1
+                else:
+                    break
+            
+            if existing_count > 0:
+                if existing_count >= limit:
+                    answer = messagebox.askyesno(
+                        "Semua File Sudah Ada",
+                        f"Semua {limit} halaman JPG sudah ada di direktori tujuan.\n\n"
+                        f"Apakah Anda ingin mengulangi proses ekspor dari halaman awal (menimpa file lama)?"
+                    )
+                    if answer:
+                        start_page_idx = 0
+                    else:
+                        return
+                else:
+                    answer = messagebox.askyesnocancel(
+                        "Lanjutkan Ekspor JPG?",
+                        f"Ditemukan {existing_count} halaman JPG yang sudah tersimpan di direktori tujuan.\n\n"
+                        f"Apakah Anda ingin melanjutkan ekspor dari halaman {existing_count + 1}?\n"
+                        f"- Klik [YA] untuk melanjutkan ke halaman {existing_count + 1}.\n"
+                        f"- Klik [TIDAK] untuk mulai ulang dari halaman 1 (timpa file lama).\n"
+                        f"- Klik [BATAL] untuk membatalkan proses ekspor.\n\n"
+                        f"PENTING: Jika Anda memilih YA, pastikan dokumen/layar target sudah diposisikan pada halaman {existing_count + 1}."
+                    )
+                    if answer is None:  # Cancel
+                        return
+                    elif answer is True:  # Yes, resume
+                        start_page_idx = existing_count
+                    else:  # No, overwrite
+                        start_page_idx = 0
+
         self.root.withdraw()
         time.sleep(1) # Wait for window to hide
         
+        hotkey_id = None
+        self.cancel_requested = False
         try:
+            # Register a low-level global hotkey for ESC key to guarantee capturing the press event
+            try:
+                hotkey_id = keyboard.add_hotkey('esc', lambda: setattr(self, 'cancel_requested', True))
+            except Exception as e:
+                print(f"Warning: Could not register ESC hotkey: {e}")
+
             pdf_pages = []
             
             if mode == "button":
                 # Button Mode logic: simple capture loop
                 self.screenshots = []
-                for i in range(total_clicks):
-                    if keyboard.is_pressed('esc'):
+                for i in range(start_page_idx, total_clicks):
+                    if self.cancel_requested or keyboard.is_pressed('esc'):
                         raise Exception("Process cancelled by user (ESC pressed).")
                         
                     img = ImageGrab.grab(bbox=rect_coords)
                     if img.mode == 'RGBA':
                         img = img.convert('RGB')
-                    self.screenshots.append(img)
+                    
+                    if export_format == "jpg":
+                        page_path = self.get_page_filename(save_path, i, total_clicks)
+                        img.save(page_path)
+                    else:
+                        self.screenshots.append(img)
                     
                     if i < total_clicks - 1:
                         pyautogui.click(next_coords[0], next_coords[1])
                         if not self.sleep_with_cancel_check(delay):
                             raise Exception("Process cancelled by user (ESC pressed).")
                             
-                pdf_pages = self.screenshots
+                if export_format == "pdf":
+                    pdf_pages = self.screenshots
                     
             else:
                 # Scroll Mode logic:
@@ -611,9 +673,9 @@ class ScreenPrinterApp:
                 center_x = (rect_coords[0] + rect_coords[2]) // 2
                 center_y = (rect_coords[1] + rect_coords[3]) // 2
                 
-                for p in range(total_pages):
+                for p in range(start_page_idx, total_pages):
                     # Check cancellation
-                    if keyboard.is_pressed('esc'):
+                    if self.cancel_requested or keyboard.is_pressed('esc'):
                         raise Exception("Process cancelled by user (ESC pressed).")
 
                     # Focus the target window at the start of every page
@@ -630,7 +692,7 @@ class ScreenPrinterApp:
                     
                     # 2. Perform scrolls and take screenshots
                     for s in range(scrolls_per_page):
-                        if keyboard.is_pressed('esc'):
+                        if self.cancel_requested or keyboard.is_pressed('esc'):
                             raise Exception("Process cancelled by user (ESC pressed).")
                             
                         # Scroll
@@ -651,7 +713,12 @@ class ScreenPrinterApp:
                     
                     # 3. Stitch page_screenshots into 1 full page image
                     stitched_page = self.stitch_screenshots_into_single_image(page_screenshots, self.stitch_var.get())
-                    pdf_pages.append(stitched_page)
+                    
+                    if export_format == "jpg":
+                        page_path = self.get_page_filename(save_path, p, total_pages)
+                        stitched_page.save(page_path)
+                    else:
+                        pdf_pages.append(stitched_page)
                     
                     # 4. If there's an optional Next button and we have more pages, click it
                     if p < total_pages - 1 and scroll_next_coords:
@@ -661,26 +728,21 @@ class ScreenPrinterApp:
                             raise Exception("Process cancelled by user (ESC pressed).")
 
             # Save / Export logic
-            if pdf_pages:
-                if export_format == "pdf":
-                    # Save as single PDF file
+            if export_format == "pdf":
+                if pdf_pages:
                     pdf_pages[0].save(save_path, save_all=True, append_images=pdf_pages[1:])
                     messagebox.showinfo("Success", f"PDF saved successfully to:\n{save_path}")
-                else:
-                    # Save as individual JPG files
-                    if len(pdf_pages) == 1:
-                        pdf_pages[0].save(save_path)
-                    else:
-                        dir_name = os.path.dirname(save_path)
-                        base_name = os.path.basename(save_path)
-                        name_part, ext_part = os.path.splitext(base_name)
-                        for idx, page in enumerate(pdf_pages):
-                            page_file_path = os.path.join(dir_name, f"{name_part}_{idx+1}{ext_part}")
-                            page.save(page_file_path)
-                    messagebox.showinfo("Success", f"JPG images saved successfully to:\n{os.path.dirname(save_path)}")
+            else:
+                # JPG files are already saved directly to disk during the loop.
+                messagebox.showinfo("Success", f"JPG images saved successfully to:\n{os.path.dirname(save_path)}")
         except Exception as e:
             messagebox.showerror("Error", f"An error occurred during processing:\n{str(e)}")
         finally:
+            if hotkey_id is not None:
+                try:
+                    keyboard.remove_hotkey(hotkey_id)
+                except Exception:
+                    pass
             self.root.deiconify()
 
 if __name__ == "__main__":
