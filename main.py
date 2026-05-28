@@ -46,6 +46,9 @@ class ScreenPrinterApp:
         self.btn_select_area = tk.Button(self.frame_area, text="Select on Screen", command=self.select_area)
         self.btn_select_area.pack(side=tk.LEFT, padx=5)
         
+        self.btn_preview_area = tk.Button(self.frame_area, text="Preview", command=self.preview_area)
+        self.btn_preview_area.pack(side=tk.RIGHT, padx=5)
+        
         self.entry_area = tk.Entry(self.frame_area)
         self.entry_area.pack(side=tk.LEFT, fill="x", expand=True, padx=5)
         
@@ -331,6 +334,55 @@ class ScreenPrinterApp:
         except Exception as e:
             if show_msg:
                 messagebox.showerror("Error", f"Failed to save configuration:\n{e}")
+
+    def preview_area(self):
+        area_str = self.entry_area.get().strip()
+        try:
+            rect_coords = [int(x.strip()) for x in area_str.split(",") if x.strip()]
+            if len(rect_coords) != 4:
+                raise ValueError()
+        except ValueError:
+            messagebox.showerror("Error", "Koordinat Printing Area tidak valid. Pastikan formatnya: x1, y1, x2, y2")
+            return
+            
+        x1, y1, x2, y2 = rect_coords
+        
+        self.root.withdraw() # Hide main window
+        time.sleep(0.2) # Small delay to ensure main window is hidden
+        
+        overlay = tk.Toplevel()
+        overlay.attributes('-alpha', 0.4) # Semi-transparent
+        overlay.attributes('-fullscreen', True)
+        overlay.attributes('-topmost', True) # Keep on top
+        
+        canvas = tk.Canvas(overlay, bg="black", highlightthickness=0)
+        canvas.pack(fill=tk.BOTH, expand=True)
+        
+        # Draw red border around the printing area
+        canvas.create_rectangle(x1, y1, x2, y2, outline='red', width=4, fill='')
+        
+        # Calculate text position (center of printing area, or center of screen if area is too small)
+        screen_w = overlay.winfo_screenwidth()
+        screen_h = overlay.winfo_screenheight()
+        
+        cx = (x1 + x2) // 2
+        cy = (y1 + y2) // 2
+        
+        # If center of area is out of bounds or area is too small, use center of screen
+        if not (0 < cx < screen_w and 0 < cy < screen_h) or abs(x2 - x1) < 100 or abs(y2 - y1) < 100:
+            cx = screen_w // 2
+            cy = screen_h // 2
+            
+        canvas.create_text(cx, cy, text="PRINTING AREA PREVIEW\n\n(Klik di mana saja atau tekan tombol apa saja untuk menutup)", 
+                           fill="white", font=("Arial", 14, "bold"), justify=tk.CENTER)
+                           
+        def close_preview(event=None):
+            overlay.destroy()
+            self.root.deiconify() # Show main window again
+            
+        overlay.bind("<Button-1>", close_preview)
+        overlay.bind("<Key>", close_preview)
+        overlay.focus_set()
 
     def select_area(self):
         self.root.withdraw() # Hide main window
